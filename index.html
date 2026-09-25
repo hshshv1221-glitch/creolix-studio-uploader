@@ -312,7 +312,15 @@ async function loadJobs() {
       box.appendChild(el);
       ghRaw(`jobs/${job.name}/output.mp4`, "studio-outputs")
         .then((b) => { el.querySelector("video").src = URL.createObjectURL(b); })
-        .catch(() => { el.querySelector("video").outerHTML = "<p class='sub'>עדיין מרנדר / אין קובץ</p>"; });
+        .catch(async () => {
+          const v = el.querySelector("video");
+          const txt = async (f) => (await ghRaw(`jobs/${job.name}/${f}`, "studio-outputs")).text();
+          try { const url = (await txt("release.txt")).trim();
+            v.outerHTML = `<p class='sub'>הסרטון ארוך — <a style="color:var(--gold)" target="_blank" href="${url}">להורדה מ-GitHub Releases</a></p>`; return; } catch (e) {}
+          try { const err = await txt("error.log");
+            v.outerHTML = `<pre style="color:#eb5757;font-size:11px;white-space:pre-wrap;direction:ltr">${err.replace(/</g,"&lt;")}</pre>`; return; } catch (e) {}
+          v.outerHTML = "<p class='sub'>עדיין מרנדר...</p>";
+        });
       el.querySelector("button").onclick = () => sendFeedback(job.name, el);
     }
   } catch (e) {
