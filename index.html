@@ -33,21 +33,9 @@
     border-radius: 16px;
     padding: 32px;
   }
-  h1 {
-    font-size: 22px;
-    margin: 0 0 4px;
-  }
-  .sub {
-    color: var(--muted);
-    margin: 0 0 24px;
-    font-size: 14px;
-  }
-  label {
-    display: block;
-    font-size: 13px;
-    color: var(--muted);
-    margin-bottom: 6px;
-  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
   input[type="text"], input[type="password"] {
     width: 100%;
     background: #0c0c10;
@@ -67,10 +55,7 @@
     transition: border-color .15s;
     margin-bottom: 16px;
   }
-  .drop.drag {
-    border-color: var(--gold);
-    background: rgba(212,175,55,0.06);
-  }
+  .drop.drag { border-color: var(--gold); background: rgba(212,175,55,0.06); }
   .drop p { margin: 4px 0; color: var(--muted); font-size: 13px; }
   .drop strong { color: var(--ink); }
   button {
@@ -85,28 +70,11 @@
     cursor: pointer;
   }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
-  #status {
-    margin-top: 16px;
-    font-size: 13px;
-    white-space: pre-wrap;
-    color: var(--muted);
-  }
+  #status { margin-top: 16px; font-size: 13px; white-space: pre-wrap; color: var(--muted); }
   #status.ok { color: #6fcf97; }
   #status.err { color: #eb5757; }
-  .bar {
-    height: 6px;
-    border-radius: 3px;
-    background: var(--border);
-    overflow: hidden;
-    margin-top: 10px;
-    display: none;
-  }
-  .bar-fill {
-    height: 100%;
-    width: 0%;
-    background: var(--gold);
-    transition: width .2s;
-  }
+  .bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; margin-top: 10px; display: none; }
+  .bar-fill { height: 100%; width: 0%; background: var(--gold); transition: width .2s; }
   details { margin-top: 20px; }
   summary { color: var(--muted); font-size: 12px; cursor: pointer; }
 </style>
@@ -114,7 +82,7 @@
 <body>
 <div class="card">
   <h1>Creolix Studio</h1>
-  <p class="sub">גורר סרטון גולמי לכאן — הוא נשמר ישירות ל-repo, בלי דרך צד שלישי.</p>
+  <p class="sub">גורר סרטון גולמי לכאן — הוא נשמר ישירות ל-repo, בלי דרך צד שלישי. קבצים גדולים מתחלקים אוטומטית לחלקים.</p>
 
   <label for="token">GitHub token (נשמר רק בדפדפן שלך, לא נשלח לשום מקום חוץ מ-GitHub)</label>
   <input type="password" id="token" placeholder="ghp_..." />
@@ -134,9 +102,9 @@
     <summary>איך יוצרים טוקן?</summary>
     <p class="sub">
       github.com → Settings → Developer settings → Personal access tokens →
-      Fine-grained tokens → New token. תן לו הרשאת "Contents: Read and write"
-      על ה-repo הזה בלבד. שומרים את זה רק בדפדפן שלך (localStorage) — אני
-      (Claude) לא רואה אותו בשום שלב.
+      Fine-grained tokens → New token. Repository access: בוחרים את
+      hshshv1221-glitch/- (הרפו הפרטי, לא הזה). Permissions → Contents →
+      Read and write. שומרים את זה רק בדפדפן שלך (localStorage).
     </p>
   </details>
 </div>
@@ -146,6 +114,7 @@ const OWNER = "hshshv1221-glitch";
 const REPO = "-";
 const BRANCH = "claude/elegant-goldberg-jsbgwa";
 const UPLOAD_DIR = ".claude/skills/video-director/incoming";
+const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB raw per chunk — safely under GitHub's blob-create limit
 
 const tokenInput = document.getElementById("token");
 const drop = document.getElementById("drop");
@@ -223,48 +192,72 @@ uploadBtn.addEventListener("click", async () => {
 
   uploadBtn.disabled = true;
   bar.style.display = "block";
-  barFill.style.width = "5%";
+  barFill.style.width = "2%";
 
   try {
-    setStatus("קורא את הקובץ...");
-    const buffer = await selectedFile.arrayBuffer();
-    barFill.style.width = "25%";
-
-    setStatus("ממיר ל-base64...");
-    const base64 = arrayBufferToBase64(buffer);
-    barFill.style.width = "40%";
-
     const safeName = selectedFile.name.replace(/[^A-Za-z0-9._-]/g, "_");
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const path = `${UPLOAD_DIR}/${timestamp}_${safeName}`;
+    const uploadId = `${timestamp}_${safeName}`;
+    const totalChunks = Math.max(1, Math.ceil(selectedFile.size / CHUNK_SIZE));
 
-    setStatus("יוצר blob ב-GitHub...");
-    const blob = await gh(`/git/blobs`, {
+    setStatus(`מעלה ${totalChunks} חלקים...`);
+    const treeEntries = [];
+
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, selectedFile.size);
+      const chunkBuffer = await selectedFile.slice(start, end).arrayBuffer();
+      const base64 = arrayBufferToBase64(chunkBuffer);
+
+      setStatus(`חלק ${i + 1}/${totalChunks}...`);
+      const blob = await gh(`/git/blobs`, {
+        method: "POST",
+        body: JSON.stringify({ content: base64, encoding: "base64" }),
+      });
+
+      const partPath = `${UPLOAD_DIR}/${uploadId}.part${String(i).padStart(4, "0")}`;
+      treeEntries.push({ path: partPath, mode: "100644", type: "blob", sha: blob.sha });
+      barFill.style.width = `${5 + (i + 1) / totalChunks * 80}%`;
+    }
+
+    setStatus("כותב manifest...");
+    const manifest = {
+      original_filename: selectedFile.name,
+      total_size: selectedFile.size,
+      total_chunks: totalChunks,
+      chunk_size: CHUNK_SIZE,
+      uploaded_at: new Date().toISOString(),
+    };
+    const manifestBlob = await gh(`/git/blobs`, {
       method: "POST",
-      body: JSON.stringify({ content: base64, encoding: "base64" }),
+      body: JSON.stringify({
+        content: btoa(unescape(encodeURIComponent(JSON.stringify(manifest, null, 2)))),
+        encoding: "base64",
+      }),
     });
-    barFill.style.width = "60%";
+    treeEntries.push({
+      path: `${UPLOAD_DIR}/${uploadId}.manifest.json`,
+      mode: "100644",
+      type: "blob",
+      sha: manifestBlob.sha,
+    });
 
     setStatus("קורא את מצב הענף הנוכחי...");
     const ref = await gh(`/git/ref/heads/${BRANCH}`);
     const latestCommitSha = ref.object.sha;
     const latestCommit = await gh(`/git/commits/${latestCommitSha}`);
-    barFill.style.width = "70%";
+    barFill.style.width = "90%";
 
     setStatus("בונה commit חדש...");
     const tree = await gh(`/git/trees`, {
       method: "POST",
-      body: JSON.stringify({
-        base_tree: latestCommit.tree.sha,
-        tree: [{ path, mode: "100644", type: "blob", sha: blob.sha }],
-      }),
+      body: JSON.stringify({ base_tree: latestCommit.tree.sha, tree: treeEntries }),
     });
-    barFill.style.width = "85%";
 
     const commit = await gh(`/git/commits`, {
       method: "POST",
       body: JSON.stringify({
-        message: `Upload ${safeName} via Creolix Studio web uploader`,
+        message: `Upload ${selectedFile.name} via Creolix Studio (${totalChunks} chunks)`,
         tree: tree.sha,
         parents: [latestCommitSha],
       }),
@@ -277,7 +270,7 @@ uploadBtn.addEventListener("click", async () => {
     });
     barFill.style.width = "100%";
 
-    setStatus(`הועלה בהצלחה ל-${path}\nתגיד ל-Claude שהקובץ מוכן.`, "ok");
+    setStatus(`הועלה בהצלחה! ${totalChunks} חלקים תחת ${uploadId}\nתגיד ל-Claude שהקובץ מוכן.`, "ok");
   } catch (err) {
     console.error(err);
     setStatus(`שגיאה: ${err.message}`, "err");
