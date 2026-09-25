@@ -344,6 +344,11 @@ async function loadJobs() {
           v.outerHTML = "<p class='sub'>עדיין מרנדר...</p>";
         });
       el.querySelector("button").onclick = () => sendFeedback(job.name, el);
+      const delBtn = document.createElement("button");
+      delBtn.textContent = "מחק סרטון";
+      delBtn.style.cssText = "margin-top:8px;margin-right:8px;width:auto;padding:8px 16px;background:#2a1414;color:#eb5757;border:1px solid #eb5757";
+      delBtn.onclick = () => deleteJob(job.name, el);
+      el.querySelector("button").insertAdjacentElement("afterend", delBtn);
     }
   } catch (e) {
     box.textContent = "אין עדיין פלטים (או שהטוקן חסר). אחרי העלאה, הרינדור בענן לוקח כמה דקות.";
@@ -368,6 +373,22 @@ async function sendFeedback(jobName, el) {
     out.textContent = "נשמר ✓ — ייכנס לעריכה הבאה";
     el.querySelector("textarea").value = "";
   } catch (e) { out.textContent = "שגיאה: " + e.message; }
+}
+
+async function deleteJob(jobName, el) {
+  if (!confirm(`למחוק את "${jobName}"? זה לא הפיך.`)) return;
+  try {
+    const cur = await gh(`/contents/jobs/${encodeURIComponent(jobName)}?ref=studio-outputs`);
+    const files = Array.isArray(cur) ? cur : [cur];
+    for (const f of files) {
+      await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/jobs/${encodeURIComponent(jobName)}/${f.name}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${tokenInput.value.trim()}`, "Accept": "application/vnd.github+json" },
+        body: JSON.stringify({ message: `Delete ${jobName}/${f.name}`, sha: f.sha, branch: "studio-outputs" }),
+      });
+    }
+    el.remove();
+  } catch (e) { alert("שגיאה במחיקה: " + e.message); }
 }
 
 document.getElementById("refreshBtn").onclick = loadJobs;
