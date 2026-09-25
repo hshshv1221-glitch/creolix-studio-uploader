@@ -109,6 +109,13 @@
   </details>
 </div>
 
+<div class="card" style="margin-top:24px">
+  <h1>הסרטונים שלי</h1>
+  <p class="sub">כל סרטון שעובד בענן מופיע כאן. אפשר לצפות, להוריד ולכתוב דיוקים.</p>
+  <button id="refreshBtn">רענן רשימה</button>
+  <div id="jobs" style="margin-top:16px"></div>
+</div>
+
 <script>
 const OWNER = "hshshv1221-glitch";
 const REPO = "-";
@@ -278,6 +285,63 @@ uploadBtn.addEventListener("click", async () => {
     uploadBtn.disabled = false;
   }
 });
+
+// ---- Studio: list rendered jobs, play them, collect feedback ----
+async function ghRaw(path, ref) {
+  const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${path}?ref=${ref}`, {
+    headers: { "Authorization": `Bearer ${tokenInput.value.trim()}`, "Accept": "application/vnd.github.raw" },
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.blob();
+}
+
+async function loadJobs() {
+  const box = document.getElementById("jobs");
+  box.textContent = "טוען...";
+  try {
+    const list = await gh(`/contents/jobs?ref=studio-outputs`);
+    box.textContent = "";
+    if (!list.length) { box.textContent = "עוד אין סרטונים מוכנים."; return; }
+    for (const job of list.reverse()) {
+      const el = document.createElement("div");
+      el.style.cssText = "border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px";
+      el.innerHTML = `<div style="font-size:13px;color:var(--muted);margin-bottom:8px">${job.name}</div>
+        <video controls style="width:100%;border-radius:8px;background:#000"></video>
+        <textarea placeholder="דיוקים לסרטון הזה (מה לשנות, מה טוב, מה לא)" style="width:100%;min-height:70px;margin-top:10px;background:#0c0c10;color:var(--ink);border:1px solid var(--border);border-radius:8px;padding:8px"></textarea>
+        <button style="margin-top:8px">שלח דיוקים</button><div class="fb" style="font-size:12px;margin-top:6px"></div>`;
+      box.appendChild(el);
+      ghRaw(`jobs/${job.name}/output.mp4`, "studio-outputs")
+        .then((b) => { el.querySelector("video").src = URL.createObjectURL(b); })
+        .catch(() => { el.querySelector("video").outerHTML = "<p class='sub'>עדיין מרנדר / אין קובץ</p>"; });
+      el.querySelector("button").onclick = () => sendFeedback(job.name, el);
+    }
+  } catch (e) {
+    box.textContent = "אין עדיין פלטים (או שהטוקן חסר). אחרי העלאה, הרינדור בענן לוקח כמה דקות.";
+  }
+}
+
+async function sendFeedback(jobName, el) {
+  const text = el.querySelector("textarea").value.trim();
+  const out = el.querySelector(".fb");
+  if (!text) return;
+  out.textContent = "שולח...";
+  try {
+    const path = ".claude/skills/video-director/data/feedback.jsonl";
+    const cur = await gh(`/contents/${path}?ref=${BRANCH}`);
+    const old = decodeURIComponent(escape(atob(cur.content.replace(/\n/g, ""))));
+    const line = JSON.stringify({ date: new Date().toISOString().slice(0, 10), video: jobName, kind: "user_feedback", notes: text });
+    const next = old.replace(/\n?$/, "\n") + line + "\n";
+    await gh(`/contents/${path}`, {
+      method: "PUT",
+      body: JSON.stringify({ message: `Feedback on ${jobName}`, content: btoa(unescape(encodeURIComponent(next))), sha: cur.sha, branch: BRANCH }),
+    });
+    out.textContent = "נשמר ✓ — ייכנס לעריכה הבאה";
+    el.querySelector("textarea").value = "";
+  } catch (e) { out.textContent = "שגיאה: " + e.message; }
+}
+
+document.getElementById("refreshBtn").onclick = loadJobs;
+if (tokenInput.value) loadJobs();
 </script>
 </body>
 </html>
