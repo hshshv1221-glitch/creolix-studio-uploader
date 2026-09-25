@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Creolix Studio — העלאת סרטון</title>
+<style>
+  :root {
+    --bg: #0c0c10;
+    --surface: #16161c;
+    --border: #2a2a33;
+    --gold: #d4af37;
+    --ink: #e9eced;
+    --muted: #9a9aa4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    width: 100%;
+    max-width: 560px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+  }
+  h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+  }
+  .sub {
+    color: var(--muted);
+    margin: 0 0 24px;
+    font-size: 14px;
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  input[type="text"], input[type="password"] {
+    width: 100%;
+    background: #0c0c10;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--ink);
+    font-size: 14px;
+    margin-bottom: 16px;
+  }
+  .drop {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 40px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s;
+    margin-bottom: 16px;
+  }
+  .drop.drag {
+    border-color: var(--gold);
+    background: rgba(212,175,55,0.06);
+  }
+  .drop p { margin: 4px 0; color: var(--muted); font-size: 13px; }
+  .drop strong { color: var(--ink); }
+  button {
+    width: 100%;
+    background: var(--gold);
+    color: #1a1500;
+    border: none;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  #status {
+    margin-top: 16px;
+    font-size: 13px;
+    white-space: pre-wrap;
+    color: var(--muted);
+  }
+  #status.ok { color: #6fcf97; }
+  #status.err { color: #eb5757; }
+  .bar {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--border);
+    overflow: hidden;
+    margin-top: 10px;
+    display: none;
+  }
+  .bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--gold);
+    transition: width .2s;
+  }
+  details { margin-top: 20px; }
+  summary { color: var(--muted); font-size: 12px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Creolix Studio</h1>
+  <p class="sub">גורר סרטון גולמי לכאן — הוא נשמר ישירות ל-repo, בלי דרך צד שלישי.</p>
+
+  <label for="token">GitHub token (נשמר רק בדפדפן שלך, לא נשלח לשום מקום חוץ מ-GitHub)</label>
+  <input type="password" id="token" placeholder="ghp_..." />
+
+  <div class="drop" id="drop">
+    <p><strong>גרור קובץ וידאו לכאן</strong></p>
+    <p>או לחץ לבחירה מהמחשב</p>
+    <p id="fileName"></p>
+  </div>
+  <input type="file" id="fileInput" accept="video/*" style="display:none" />
+
+  <button id="uploadBtn" disabled>העלה</button>
+  <div class="bar" id="bar"><div class="bar-fill" id="barFill"></div></div>
+  <div id="status"></div>
+
+  <details>
+    <summary>איך יוצרים טוקן?</summary>
+    <p class="sub">
+      github.com → Settings → Developer settings → Personal access tokens →
+      Fine-grained tokens → New token. תן לו הרשאת "Contents: Read and write"
+      על ה-repo הזה בלבד. שומרים את זה רק בדפדפן שלך (localStorage) — אני
+      (Claude) לא רואה אותו בשום שלב.
+    </p>
+  </details>
+</div>
+
+<script>
+const OWNER = "hshshv1221-glitch";
+const REPO = "-";
+const BRANCH = "claude/elegant-goldberg-jsbgwa";
+const UPLOAD_DIR = ".claude/skills/video-director/incoming";
+
+const tokenInput = document.getElementById("token");
+const drop = document.getElementById("drop");
+const fileInput = document.getElementById("fileInput");
+const fileNameEl = document.getElementById("fileName");
+const uploadBtn = document.getElementById("uploadBtn");
+const statusEl = document.getElementById("status");
+const bar = document.getElementById("bar");
+const barFill = document.getElementById("barFill");
+
+let selectedFile = null;
+
+tokenInput.value = localStorage.getItem("gh_token") || "";
+tokenInput.addEventListener("input", () => {
+  localStorage.setItem("gh_token", tokenInput.value.trim());
+});
+
+drop.addEventListener("click", () => fileInput.click());
+drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("drag"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("drag"));
+drop.addEventListener("drop", (e) => {
+  e.preventDefault();
+  drop.classList.remove("drag");
+  if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener("change", () => {
+  if (fileInput.files.length) setFile(fileInput.files[0]);
+});
+
+function setFile(f) {
+  selectedFile = f;
+  fileNameEl.textContent = `${f.name} (${(f.size / 1024 / 1024).toFixed(1)} MB)`;
+  uploadBtn.disabled = false;
+  setStatus("", "");
+}
+
+function setStatus(msg, cls) {
+  statusEl.textContent = msg;
+  statusEl.className = cls || "";
+}
+
+function arrayBufferToBase64(buffer) {
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function gh(path, options = {}) {
+  const token = tokenInput.value.trim();
+  const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}${path}`, {
+    ...options,
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Accept": "application/vnd.github+json",
+      ...(options.headers || {}),
+    },
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`GitHub API ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+uploadBtn.addEventListener("click", async () => {
+  if (!selectedFile) return;
+  if (!tokenInput.value.trim()) {
+    setStatus("צריך להדביק טוקן GitHub קודם (ראה 'איך יוצרים טוקן?' למטה).", "err");
+    return;
+  }
+
+  uploadBtn.disabled = true;
+  bar.style.display = "block";
+  barFill.style.width = "5%";
+
+  try {
+    setStatus("קורא את הקובץ...");
+    const buffer = await selectedFile.arrayBuffer();
+    barFill.style.width = "25%";
+
+    setStatus("ממיר ל-base64...");
+    const base64 = arrayBufferToBase64(buffer);
+    barFill.style.width = "40%";
+
+    const safeName = selectedFile.name.replace(/[^A-Za-z0-9._-]/g, "_");
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const path = `${UPLOAD_DIR}/${timestamp}_${safeName}`;
+
+    setStatus("יוצר blob ב-GitHub...");
+    const blob = await gh(`/git/blobs`, {
+      method: "POST",
+      body: JSON.stringify({ content: base64, encoding: "base64" }),
+    });
+    barFill.style.width = "60%";
+
+    setStatus("קורא את מצב הענף הנוכחי...");
+    const ref = await gh(`/git/ref/heads/${BRANCH}`);
+    const latestCommitSha = ref.object.sha;
+    const latestCommit = await gh(`/git/commits/${latestCommitSha}`);
+    barFill.style.width = "70%";
+
+    setStatus("בונה commit חדש...");
+    const tree = await gh(`/git/trees`, {
+      method: "POST",
+      body: JSON.stringify({
+        base_tree: latestCommit.tree.sha,
+        tree: [{ path, mode: "100644", type: "blob", sha: blob.sha }],
+      }),
+    });
+    barFill.style.width = "85%";
+
+    const commit = await gh(`/git/commits`, {
+      method: "POST",
+      body: JSON.stringify({
+        message: `Upload ${safeName} via Creolix Studio web uploader`,
+        tree: tree.sha,
+        parents: [latestCommitSha],
+      }),
+    });
+
+    setStatus("מעדכן את הענף...");
+    await gh(`/git/refs/heads/${BRANCH}`, {
+      method: "PATCH",
+      body: JSON.stringify({ sha: commit.sha }),
+    });
+    barFill.style.width = "100%";
+
+    setStatus(`הועלה בהצלחה ל-${path}\nתגיד ל-Claude שהקובץ מוכן.`, "ok");
+  } catch (err) {
+    console.error(err);
+    setStatus(`שגיאה: ${err.message}`, "err");
+  } finally {
+    uploadBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
