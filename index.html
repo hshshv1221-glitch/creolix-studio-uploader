@@ -76,6 +76,14 @@
   .bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; margin-top: 10px; display: none; }
   .bar-fill { height: 100%; width: 0%; background: var(--gold); transition: width .2s; }
   details { margin-top: 20px; }
+  .layer { display:flex; justify-content:space-between; align-items:center; padding:7px 0; font-weight:700; font-size:14px; }
+  .sw { position:relative; width:46px; height:26px; }
+  .sw input { opacity:0; width:0; height:0; }
+  .sw span { position:absolute; inset:0; background:var(--border); border-radius:26px; transition:.2s; cursor:pointer; }
+  .sw span:before { content:""; position:absolute; width:20px; height:20px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.2s; }
+  .sw input:checked + span { background:var(--gold); }
+  .sw input:checked + span:before { transform:translateX(20px); }
+  .dl { display:inline-block; margin-top:8px; color:var(--gold); font-size:13px; font-weight:700; }
   summary { color: var(--muted); font-size: 12px; cursor: pointer; }
 </style>
 </head>
@@ -94,6 +102,7 @@
   </div>
   <input type="file" id="fileInput" accept="video/*" style="display:none" />
 
+  <div id="layers" style="margin-bottom:16px"></div>
   <button id="uploadBtn" disabled>העלה</button>
   <div class="bar" id="bar"><div class="bar-fill" id="barFill"></div></div>
   <div id="status"></div>
@@ -133,6 +142,14 @@ const bar = document.getElementById("bar");
 const barFill = document.getElementById("barFill");
 
 let selectedFile = null;
+
+const LAYERS = [["raw","Raw — הצילום המקורי"],["tracking","Tracking — מעקב פנים"],["cc","CC — כתוביות"],
+  ["zooms","Zooms — זומים"],["texts","Texts — טקסטים גדולים והוק"],["animations","Animations — אנימציות"],["sfx","SFX — אפקטי סאונד"]];
+const saved = JSON.parse(localStorage.getItem("layers") || "{}");
+document.getElementById("layers").innerHTML = LAYERS.map(([k, label]) =>
+  `<label class="layer"><span>${label}</span><span class="sw"><input type="checkbox" data-k="${k}" ${saved[k] === false ? "" : "checked"} ${k === "raw" ? "disabled" : ""}><span></span></span></label>`).join("");
+const features = () => Object.fromEntries([...document.querySelectorAll("#layers input")].map((i) => [i.dataset.k, i.checked]));
+document.getElementById("layers").addEventListener("change", () => localStorage.setItem("layers", JSON.stringify(features())));
 
 tokenInput.value = localStorage.getItem("gh_token") || "";
 tokenInput.addEventListener("input", () => {
@@ -234,6 +251,7 @@ uploadBtn.addEventListener("click", async () => {
       total_chunks: totalChunks,
       chunk_size: CHUNK_SIZE,
       uploaded_at: new Date().toISOString(),
+      features: features(),
     };
     const manifestBlob = await gh(`/git/blobs`, {
       method: "POST",
@@ -311,7 +329,11 @@ async function loadJobs() {
         <button style="margin-top:8px">שלח דיוקים</button><div class="fb" style="font-size:12px;margin-top:6px"></div>`;
       box.appendChild(el);
       ghRaw(`jobs/${job.name}/output.mp4`, "studio-outputs")
-        .then((b) => { el.querySelector("video").src = URL.createObjectURL(b); })
+        .then((b) => {
+          const u = URL.createObjectURL(b);
+          el.querySelector("video").src = u;
+          el.querySelector("video").insertAdjacentHTML("afterend", `<a class="dl" href="${u}" download="${job.name}.mp4">⬇ הורדת הסרטון</a>`);
+        })
         .catch(async () => {
           const v = el.querySelector("video");
           const txt = async (f) => (await ghRaw(`jobs/${job.name}/${f}`, "studio-outputs")).text();
